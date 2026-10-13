@@ -1,0 +1,12 @@
+Assistant/.env
+Assistant/.venv/
+Assistant/__pycache__/
+Assistant/**/__pycache__/
+Assistant/.pytest_cache/
+Assistant/data/chroma_db/
+WebAPI/*.db
+WebAPI/bin/
+WebAPI/obj/
+Frontend/node_modules/
+Frontend/dist/
+Frontend/.env.local
