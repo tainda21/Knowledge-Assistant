@@ -1,0 +1,59 @@
+services:
+  assistant:
+    build:
+      context: ./Assistant
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY in .env}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      GEMINI_API_VERSION: ${GEMINI_API_VERSION:-v1beta}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-gemini-embedding-001}
+      ASSISTANT_INTERNAL_KEY: ${ASSISTANT_INTERNAL_KEY:?Set ASSISTANT_INTERNAL_KEY in .env}
+      CHROMA_PERSIST_DIR: /app/data/chroma_db
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    volumes:
+      - assistant-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  webapi:
+    build:
+      context: ./WebAPI
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: Data Source=/app/data/knowledge_assistant.db
+      AssistantService__BaseUrl: http://assistant:8000
+      AssistantService__InternalKey: ${ASSISTANT_INTERNAL_KEY:?Set ASSISTANT_INTERNAL_KEY in .env}
+      Frontend__Origin: ${FRONTEND_ORIGIN:-http://localhost:5173}
+      Jwt__SecretKey: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
+      Jwt__Issuer: ${JWT_ISSUER:-KnowledgeAssistantWebAPI}
+      Jwt__Audience: ${JWT_AUDIENCE:-KnowledgeAssistantApp}
+      AdminSeed__Username: ${ADMIN_USERNAME:-admin}
+      AdminSeed__Password: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+    ports:
+      - "5090:8080"
+    volumes:
+      - webapi-data:/app/data
+    depends_on:
+      assistant:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./Frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:5090}
+    ports:
+      - "5173:80"
+    depends_on:
+      - webapi
+
+volumes:
+  assistant-data:
+  webapi-data:

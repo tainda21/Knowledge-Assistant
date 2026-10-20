@@ -144,7 +144,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+if (!string.IsNullOrWhiteSpace(builder.Configuration["HttpsRedirection:Port"]))
+{
+    app.UseHttpsRedirection();
+}
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();

@@ -20,7 +20,9 @@ from modules.vector_store import delete_document, replace_document
 MAX_MESSAGE_LENGTH = 8_000
 MAX_SOURCE_BYTES = 20 * 1024 * 1024
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+# Load the shared project configuration from the repository root. Compose also
+# supplies these variables directly when the Assistant runs in a container.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
