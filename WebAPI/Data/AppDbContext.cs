@@ -67,6 +67,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(document => document.IngestionStatus).HasMaxLength(32).IsRequired();
             entity.Property(document => document.IngestionError).HasMaxLength(2_000);
             entity.Property(document => document.ContentHash).HasMaxLength(64);
+            entity.Property(document => document.IndexedAt)
+                .HasConversion(
+                    value => value.HasValue ? value.Value.UtcDateTime : (DateTime?)null,
+                    value => value.HasValue ? new DateTimeOffset(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)) : null);
+            entity.Property(document => document.NextAttemptAt)
+                .HasConversion(
+                    value => value.HasValue ? value.Value.UtcDateTime : (DateTime?)null,
+                    value => value.HasValue ? new DateTimeOffset(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)) : null);
             entity.Property(document => document.CreatedAt)
                 .HasConversion(value => value.UtcDateTime, value => new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc)))
                 .IsRequired();

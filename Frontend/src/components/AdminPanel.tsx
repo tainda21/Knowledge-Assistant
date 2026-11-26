@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { ChangeEvent, FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { ChangeEvent, DragEvent, FormEvent, KeyboardEvent } from 'react'
 import { useAuth, apiBaseUrl } from '../contexts/AuthContext'
 import styles from './AdminPanel.module.css'
 
@@ -45,8 +45,10 @@ export default function AdminPanel({ onMenuOpen }: Props) {
   const [documentContent, setDocumentContent] = useState('')
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null)
   const [isSavingDocument, setIsSavingDocument] = useState(false)
+  const [isDraggingDocument, setIsDraggingDocument] = useState(false)
   const [documentError, setDocumentError] = useState<string | null>(null)
   const [documentSuccess, setDocumentSuccess] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     void authFetch(`${apiBaseUrl}/api/users`)
@@ -161,23 +163,87 @@ export default function AdminPanel({ onMenuOpen }: Props) {
     }
   }
 
-  async function handleUploadDocument(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
+  function isSupportedDocumentFile(file: File) {
+    const lowerName = file.name.toLowerCase()
+    const allowedExtensions = ['.pdf', '.txt', '.md', '.markdown']
+    const allowedMimeTypes = ['application/pdf', 'text/plain', 'text/markdown']
+    return allowedExtensions.some(ext => lowerName.endsWith(ext)) || allowedMimeTypes.includes(file.type)
+  }
+
+  async function uploadDocumentFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList)
+    if (files.length === 0) return
+
+    const unsupported = files.find(file => !isSupportedDocumentFile(file))
+    if (unsupported) {
+      setDocumentError(`Unsupported file "${unsupported.name}". Please upload a PDF, TXT, or Markdown file.`)
+      return
+    }
+
     setDocumentError(null); setDocumentSuccess(null); setIsSavingDocument(true)
+    const uploadedNames: string[] = []
     try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await authFetch(`${apiBaseUrl}/api/documents/upload`, { method: 'POST', body: form })
-      const body = await res.json() as DocumentRow & { message?: string }
-      if (!res.ok) throw new Error(body.message ?? 'Failed to upload document.')
-      setDocuments(prev => [body, ...prev])
-      setDocumentSuccess(`"${body.name}" was uploaded and queued for indexing.`)
+      for (const file of files) {
+        const form = new FormData()
+        form.append('file', file)
+        const res = await authFetch(`${apiBaseUrl}/api/documents/upload`, { method: 'POST', body: form })
+        const body = await res.json() as DocumentRow & { message?: string }
+        if (!res.ok) throw new Error(body.message ?? `Failed to upload "${file.name}".`)
+        setDocuments(prev => [body, ...prev])
+        uploadedNames.push(body.name)
+      }
+      setDocumentSuccess(
+        uploadedNames.length === 1
+          ? `"${uploadedNames[0]}" was uploaded and queued for indexing.`
+          : `${uploadedNames.length} documents were uploaded and queued for indexing.`
+      )
     } catch (err) {
       setDocumentError(err instanceof Error ? err.message : 'Failed to upload document.')
     } finally {
       setIsSavingDocument(false)
+    }
+  }
+
+  function handleUploadDocument(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      void uploadDocumentFiles(files)
+    }
+    e.target.value = ''
+  }
+
+  function handleDragOver(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!isSavingDocument && !isDraggingDocument) {
+      setIsDraggingDocument(true)
+    }
+  }
+
+  function handleDragLeave(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setIsDraggingDocument(false)
+    }
+  }
+
+  function handleDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingDocument(false)
+    if (isSavingDocument) return
+    const files = e.dataTransfer.files
+    if (files && files.length > 0) {
+      void uploadDocumentFiles(files)
+    }
+  }
+
+  function handleDropzoneKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (isSavingDocument) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      fileInputRef.current?.click()
     }
   }
 
@@ -265,12 +331,46 @@ export default function AdminPanel({ onMenuOpen }: Props) {
 
         <section className={styles.createSection}>
           <h3 className={styles.createTitle}>{editingDocumentId ? 'Edit Document' : 'Add Document'}</h3>
-          {!editingDocumentId && <div className={styles.uploadRow}><label className={styles.uploadBtn}>Upload PDF, TXT, or Markdown<input type="file" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" onChange={handleUploadDocument} disabled={isSavingDocument} /></label></div>}
-          <form className={styles.documentForm} onSubmit={handleSaveDocument}>
-            <div className={styles.field}><label className={styles.label} htmlFor="document-name">Name</label><input id="document-name" className={styles.input} value={documentName} onChange={e => setDocumentName(e.target.value)} placeholder="e.g. return-policy.md" disabled={isSavingDocument} /></div>
-            <div className={styles.field}><label className={styles.label} htmlFor="document-content">Content</label><textarea id="document-content" className={styles.textarea} value={documentContent} onChange={e => setDocumentContent(e.target.value)} placeholder="Paste the knowledge content used for retrieval…" rows={8} disabled={isSavingDocument} /></div>
-            <div className={styles.documentButtons}><button className={styles.createBtn} type="submit" disabled={isSavingDocument}>{isSavingDocument ? 'Saving…' : editingDocumentId ? 'Save Changes' : 'Add Document'}</button>{editingDocumentId && <button className={styles.cancelBtn} type="button" onClick={resetDocumentForm}>Cancel</button>}</div>
-          </form>
+          {editingDocumentId ? (
+            <form className={styles.documentForm} onSubmit={handleSaveDocument}>
+              <div className={styles.field}><label className={styles.label} htmlFor="document-name">Name</label><input id="document-name" className={styles.input} value={documentName} onChange={e => setDocumentName(e.target.value)} placeholder="e.g. return-policy.md" disabled={isSavingDocument} /></div>
+              <div className={styles.field}><label className={styles.label} htmlFor="document-content">Content</label><textarea id="document-content" className={styles.textarea} value={documentContent} onChange={e => setDocumentContent(e.target.value)} placeholder="Paste the knowledge content used for retrieval…" rows={8} disabled={isSavingDocument} /></div>
+              <div className={styles.documentButtons}><button className={styles.createBtn} type="submit" disabled={isSavingDocument}>{isSavingDocument ? 'Saving…' : 'Save Changes'}</button><button className={styles.cancelBtn} type="button" onClick={resetDocumentForm}>Cancel</button></div>
+            </form>
+          ) : (
+            <div
+              className={`${styles.dropzone} ${isDraggingDocument ? styles.dropzoneActive : ''} ${isSavingDocument ? styles.dropzoneDisabled : ''}`}
+              role="button"
+              tabIndex={isSavingDocument ? -1 : 0}
+              aria-label="Upload document by clicking or dragging and dropping"
+              aria-disabled={isSavingDocument}
+              onClick={() => { if (!isSavingDocument) fileInputRef.current?.click() }}
+              onKeyDown={handleDropzoneKeyDown}
+              onDragEnter={handleDragOver}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown"
+                onChange={handleUploadDocument}
+                disabled={isSavingDocument}
+                className={styles.hiddenFileInput}
+              />
+              <div className={styles.dropzoneIcon} aria-hidden="true">↑</div>
+              <p className={styles.dropzoneTitle}>
+                {isSavingDocument
+                  ? 'Uploading document…'
+                  : isDraggingDocument
+                    ? 'Drop file here to upload'
+                    : 'Drag and drop a document here, or click to browse'}
+              </p>
+              <p className={styles.dropzoneHint}>Supported formats: PDF, TXT, Markdown (.pdf, .txt, .md, .markdown)</p>
+            </div>
+          )}
           {documentError && <p className={styles.errorMsg} role="alert">{documentError}</p>}
           {documentSuccess && <p className={styles.successMsg}>{documentSuccess}</p>}
         </section>
